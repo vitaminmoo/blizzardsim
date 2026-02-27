@@ -5,9 +5,10 @@ import (
 	"image/color"
 	"math"
 
+	"blizzardsim/sim"
+
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
-	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
 type PatternGame struct {
@@ -25,7 +26,7 @@ func (g *PatternGame) Update() error {
 	gx, gy := screenToIso(mx, my)
 	sx := int(math.Floor(gx))
 	sy := int(math.Floor(gy))
-	if sx >= 0 && sx < FieldW && sy >= 0 && sy < FieldH {
+	if sx >= 0 && sx < sim.FieldW && sy >= 0 && sy < sim.FieldH {
 		g.valid = true
 		g.castX = sx
 		g.castY = sy
@@ -35,17 +36,7 @@ func (g *PatternGame) Update() error {
 }
 
 func (g *PatternGame) Draw(screen *ebiten.Image) {
-	// Draw isometric grid
-	for x := 0; x <= FieldW; x++ {
-		x0, y0 := isoToScreen(float64(x), 0)
-		x1, y1 := isoToScreen(float64(x), float64(FieldH))
-		vector.StrokeLine(screen, x0, y0, x1, y1, 1, colorGrid, false)
-	}
-	for y := 0; y <= FieldH; y++ {
-		x0, y0 := isoToScreen(0, float64(y))
-		x1, y1 := isoToScreen(float64(FieldW), float64(y))
-		vector.StrokeLine(screen, x0, y0, x1, y1, 1, colorGrid, false)
-	}
+	drawIsometricGrid(screen)
 
 	if !g.valid {
 		ebitenutil.DebugPrintAt(screen, "Touch or move mouse over the grid", 10, tabBarH+2)
@@ -60,15 +51,11 @@ func (g *PatternGame) Draw(screen *ebiten.Image) {
 	hits := map[[2]int]int{}
 	var shards []shardPos
 
-	for elapsed := 0; elapsed < BlizzardDuration; elapsed += ShardSpawnRate {
-		var seed D2Seed
-		seed.Init(uint32(g.castX) + uint32(elapsed))
-		maxRange := int32(BlizzardRadius - 1)
-		dx := int(maxRange - seed.RollN(2*maxRange))
-		dy := int(maxRange - seed.RollN(2*maxRange))
+	for elapsed := 0; elapsed < sim.BlizzardDuration; elapsed += sim.ShardSpawnRate {
+		dx, dy := sim.ShardOffset(uint32(g.castX), elapsed)
 		shards = append(shards, shardPos{g.castX + dx, g.castY + dy})
-		for sy := 0; sy < ShardH; sy++ {
-			for sx := 0; sx < ShardW; sx++ {
+		for sy := 0; sy < sim.ShardH; sy++ {
+			for sx := 0; sx < sim.ShardW; sx++ {
 				hits[[2]int{g.castX + dx + sx, g.castY + dy + sy}]++
 			}
 		}
@@ -84,7 +71,7 @@ func (g *PatternGame) Draw(screen *ebiten.Image) {
 
 	// Draw hit subtiles colored by intensity
 	for pos, h := range hits {
-		if pos[0] < 0 || pos[0] >= FieldW || pos[1] < 0 || pos[1] >= FieldH {
+		if pos[0] < 0 || pos[0] >= sim.FieldW || pos[1] < 0 || pos[1] >= sim.FieldH {
 			continue
 		}
 		t := float64(h) / float64(maxHits)
@@ -96,14 +83,11 @@ func (g *PatternGame) Draw(screen *ebiten.Image) {
 
 	// Draw shard outlines (2x2 each)
 	for _, s := range shards {
-		strokeDiamond(screen, s.x, s.y, ShardW, ShardH, color.RGBA{255, 255, 255, 150})
+		strokeDiamond(screen, s.x, s.y, sim.ShardW, sim.ShardH, color.RGBA{255, 255, 255, 150})
 	}
 
 	// Cast point marker
-	cx, cy := isoToScreen(float64(g.castX)+0.5, float64(g.castY)+0.5)
-	d := float32(8)
-	vector.StrokeLine(screen, cx-d, cy-d, cx+d, cy+d, 2, colorCastMarker, false)
-	vector.StrokeLine(screen, cx-d, cy+d, cx+d, cy-d, 2, colorCastMarker, false)
+	drawCastMarker(screen, float64(g.castX), float64(g.castY), 8, 2)
 
 	// HUD
 	ebitenutil.DebugPrintAt(screen, fmt.Sprintf(

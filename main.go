@@ -6,33 +6,21 @@ import (
 	"log"
 	"math"
 
+	"blizzardsim/sim"
+
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
-// D2 game constants
+// Isometric projection constants (2:1 ratio)
 const (
-	TPS              = 25  // D2 game tick rate
-	FieldW           = 50  // subtiles wide
-	FieldH           = 35  // subtiles tall
-	BlizzardDuration = 100 // frames
-	ShardSpawnRate   = 4   // spawn every N frames
-	ShardLifetime    = 9   // frames
-	ShardW           = 2   // subtiles
-	ShardH           = 2   // subtiles
-	BlizzardRadius   = 7
-	BlizzardDelay    = 45 // frames — Blizzard's NextDelay (1.8s)
-	ActionFrame105   = 5  // cast animation frames at 105 FCR (63-199 FCR range)
-	BlizzardCastRate = BlizzardDelay + ActionFrame105 // 50 frames between casts
-
-	// Isometric projection constants (2:1 ratio)
 	HalfTileW = 14
 	HalfTileH = 7
-	ScreenW   = (FieldW + FieldH) * HalfTileW + 20        // 1210
-	ScreenH   = (FieldW+FieldH)*HalfTileH + 50 + tabBarH  // 675
-	OffsetX   = FieldH*HalfTileW + 10                      // 500
-	OffsetY   = 25 + tabBarH                               // 55
+	ScreenW   = (sim.FieldW + sim.FieldH) * HalfTileW + 20       // 1210
+	ScreenH   = (sim.FieldW+sim.FieldH)*HalfTileH + 50 + tabBarH // 675
+	OffsetX   = sim.FieldH*HalfTileW + 10                         // 500
+	OffsetY   = 25 + tabBarH                                      // 55
 )
 
 // Colors
@@ -109,35 +97,6 @@ func strokeDiamond(screen *ebiten.Image, gx, gy, gw, gh int, clr color.Color) {
 	vector.StrokePath(screen, &path, &vector.StrokeOptions{Width: 1}, &vector.DrawPathOptions{
 		ColorScale: colorScaleFrom(clr),
 	})
-}
-
-// D2Seed — exact D2 LCG from D2MOO
-type D2Seed struct {
-	Lo uint32
-	Hi uint32
-}
-
-func (s *D2Seed) Init(low uint32) {
-	s.Lo = low
-	s.Hi = 666
-}
-
-func (s *D2Seed) Roll() uint32 {
-	result := uint64(s.Hi) + uint64(0x6AC690C5)*uint64(s.Lo)
-	s.Lo = uint32(result)
-	s.Hi = uint32(result >> 32)
-	return s.Lo
-}
-
-func (s *D2Seed) RollN(n int32) int32 {
-	if n <= 0 {
-		return 0
-	}
-	r := s.Roll()
-	if n&(n-1) == 0 {
-		return int32(r & uint32(n-1))
-	}
-	return int32(r % uint32(n))
 }
 
 // Shard is a single blizzard sub-projectile
@@ -266,9 +225,9 @@ func (g *Game) Update() error {
 			g.Blizzards = append(g.Blizzards, &Blizzard{
 				CenterX:    g.PendingX,
 				CenterY:    g.PendingY,
-				FramesLeft: BlizzardDuration,
+				FramesLeft: sim.BlizzardDuration,
 			})
-			g.CooldownLeft = BlizzardDelay
+			g.CooldownLeft = sim.BlizzardDelay
 		}
 	}
 
@@ -289,10 +248,10 @@ func (g *Game) Update() error {
 		sx := int(math.Floor(gx))
 		sy := int(math.Floor(gy))
 		// Only cast if within field bounds (ignores clicks on tab bar)
-		if sx >= 0 && sy >= 0 && sx < FieldW && sy < FieldH {
+		if sx >= 0 && sy >= 0 && sx < sim.FieldW && sy < sim.FieldH {
 			g.PendingX = sx
 			g.PendingY = sy
-			g.CastingLeft = ActionFrame105
+			g.CastingLeft = sim.ActionFrame105
 		}
 	}
 
@@ -315,17 +274,13 @@ func (g *Game) Update() error {
 	alive := g.Blizzards[:0]
 	for _, b := range g.Blizzards {
 		// Spawn shard — seed uses elapsed frames (counting up from 0)
-		elapsed := BlizzardDuration - b.FramesLeft
-		if b.FramesLeft > 0 && elapsed%ShardSpawnRate == 0 {
-			var seed D2Seed
-			seed.Init(uint32(b.CenterX) + uint32(elapsed))
-			maxRange := int32(BlizzardRadius - 1) // 6
-			offsetX := maxRange - seed.RollN(2*maxRange)
-			offsetY := maxRange - seed.RollN(2*maxRange)
+		elapsed := sim.BlizzardDuration - b.FramesLeft
+		if b.FramesLeft > 0 && elapsed%sim.ShardSpawnRate == 0 {
+			dx, dy := sim.ShardOffset(uint32(b.CenterX), elapsed)
 			b.Shards = append(b.Shards, Shard{
-				X:          b.CenterX + int(offsetX),
-				Y:          b.CenterY + int(offsetY),
-				FramesLeft: ShardLifetime,
+				X:          b.CenterX + dx,
+				Y:          b.CenterY + dy,
+				FramesLeft: sim.ShardLifetime,
 			})
 		}
 		if b.FramesLeft > 0 {
@@ -340,7 +295,7 @@ func (g *Game) Update() error {
 			if !s.Hit {
 				for mi := range g.Monsters {
 					for _, cell := range g.Monsters[mi].Cells() {
-						if rectsOverlap(s.X, s.Y, ShardW, ShardH, cell[0], cell[1], cell[2], cell[3]) {
+						if rectsOverlap(s.X, s.Y, sim.ShardW, sim.ShardH, cell[0], cell[1], cell[2], cell[3]) {
 							s.Hit = true
 							break
 						}
@@ -367,17 +322,7 @@ func (g *Game) Update() error {
 }
 
 func (g *Game) Draw(screen *ebiten.Image) {
-	// Isometric grid lines
-	for x := 0; x <= FieldW; x++ {
-		x0, y0 := isoToScreen(float64(x), 0)
-		x1, y1 := isoToScreen(float64(x), float64(FieldH))
-		vector.StrokeLine(screen, x0, y0, x1, y1, 1, colorGrid, false)
-	}
-	for y := 0; y <= FieldH; y++ {
-		x0, y0 := isoToScreen(0, float64(y))
-		x1, y1 := isoToScreen(float64(FieldW), float64(y))
-		vector.StrokeLine(screen, x0, y0, x1, y1, 1, colorGrid, false)
-	}
+	drawIsometricGrid(screen)
 
 	// Monsters
 	for i := range g.Monsters {
@@ -402,10 +347,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	for _, b := range g.Blizzards {
 		// Cast point X marker
 		if b.FramesLeft > 0 {
-			cx, cy := isoToScreen(float64(b.CenterX)+0.5, float64(b.CenterY)+0.5)
-			d := float32(6)
-			vector.StrokeLine(screen, cx-d, cy-d, cx+d, cy+d, 1, colorCastMarker, false)
-			vector.StrokeLine(screen, cx-d, cy+d, cx+d, cy-d, 1, colorCastMarker, false)
+			drawCastMarker(screen, float64(b.CenterX), float64(b.CenterY), 6, 1)
 		}
 
 		// Shards
@@ -414,8 +356,8 @@ func (g *Game) Draw(screen *ebiten.Image) {
 			if s.Hit {
 				c = colorShardHit
 			}
-			fillDiamond(screen, s.X, s.Y, ShardW, ShardH, c)
-			strokeDiamond(screen, s.X, s.Y, ShardW, ShardH, colorShardEdge)
+			fillDiamond(screen, s.X, s.Y, sim.ShardW, sim.ShardH, c)
+			strokeDiamond(screen, s.X, s.Y, sim.ShardW, sim.ShardH, colorShardEdge)
 		}
 	}
 
@@ -435,6 +377,27 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		len(g.Blizzards), activeShards, status), 10, tabBarH+2)
 }
 
+// drawIsometricGrid draws the isometric grid lines for the full field.
+func drawIsometricGrid(screen *ebiten.Image) {
+	for x := 0; x <= sim.FieldW; x++ {
+		x0, y0 := isoToScreen(float64(x), 0)
+		x1, y1 := isoToScreen(float64(x), float64(sim.FieldH))
+		vector.StrokeLine(screen, x0, y0, x1, y1, 1, colorGrid, false)
+	}
+	for y := 0; y <= sim.FieldH; y++ {
+		x0, y0 := isoToScreen(0, float64(y))
+		x1, y1 := isoToScreen(float64(sim.FieldW), float64(y))
+		vector.StrokeLine(screen, x0, y0, x1, y1, 1, colorGrid, false)
+	}
+}
+
+// drawCastMarker draws an X marker at the given game coordinates.
+func drawCastMarker(screen *ebiten.Image, gx, gy float64, size, width float32) {
+	cx, cy := isoToScreen(gx+0.5, gy+0.5)
+	vector.StrokeLine(screen, cx-size, cy-size, cx+size, cy+size, width, colorCastMarker, false)
+	vector.StrokeLine(screen, cx-size, cy+size, cx+size, cy-size, width, colorCastMarker, false)
+}
+
 func rectsOverlap(ax, ay, aw, ah, bx, by, bw, bh int) bool {
 	return ax < bx+bw && ax+aw > bx && ay < by+bh && ay+ah > by
 }
@@ -442,7 +405,7 @@ func rectsOverlap(ax, ay, aw, ah, bx, by, bw, bh int) bool {
 func main() {
 	ebiten.SetWindowSize(ScreenW, ScreenH)
 	ebiten.SetWindowTitle("Blizzard Simulator")
-	ebiten.SetTPS(TPS)
+	ebiten.SetTPS(sim.TPS)
 
 	if err := ebiten.RunGame(NewApp()); err != nil {
 		log.Fatal(err)

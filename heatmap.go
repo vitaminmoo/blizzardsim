@@ -6,6 +6,8 @@ import (
 	"math"
 	"time"
 
+	"blizzardsim/sim"
+
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/vector"
@@ -67,14 +69,10 @@ func heatColor(t float64) color.RGBA {
 // simulateBlizzardGrid returns per-subtile hit counts for a single X value.
 func simulateBlizzardGrid(centerX uint32) gridArray {
 	var grid gridArray
-	for elapsed := 0; elapsed < BlizzardDuration; elapsed += ShardSpawnRate {
-		var seed D2Seed
-		seed.Init(centerX + uint32(elapsed))
-		maxRange := int32(BlizzardRadius - 1)
-		dx := int(maxRange - seed.RollN(2*maxRange))
-		dy := int(maxRange - seed.RollN(2*maxRange))
-		for sy := 0; sy < ShardH; sy++ {
-			for sx := 0; sx < ShardW; sx++ {
+	for elapsed := 0; elapsed < sim.BlizzardDuration; elapsed += sim.ShardSpawnRate {
+		dx, dy := sim.ShardOffset(centerX, elapsed)
+		for sy := 0; sy < sim.ShardH; sy++ {
+			for sx := 0; sx < sim.ShardW; sx++ {
 				gx := dx + sx
 				gy := dy + sy
 				if gx >= -6 && gx <= 6 && gy >= -6 && gy <= 6 {
@@ -189,68 +187,54 @@ func (g *HeatmapGame) addCast(x uint32) {
 	g.samples++
 }
 
+type hmControl struct {
+	width int
+	idx   *int
+	count int
+	label func() string
+}
+
+func (g *HeatmapGame) controls() []hmControl {
+	return []hmControl{
+		{110, &g.startIdx, len(hmStartPresets), func() string {
+			return fmt.Sprintf("Start:%d", hmStartPresets[g.startIdx])
+		}},
+		{130, &g.endIdx, len(hmEndPresets), func() string {
+			return fmt.Sprintf("End:%d", hmEndPresets[g.endIdx])
+		}},
+		{90, &g.stepIdx, len(hmStepPresets), func() string {
+			return fmt.Sprintf("Step:%d", hmStepPresets[g.stepIdx])
+		}},
+		{110, &g.speedIdx, len(hmSpeedValues), func() string {
+			return fmt.Sprintf("Speed:%s", hmSpeedLabels[g.speedIdx])
+		}},
+		{100, &g.windowIdx, len(hmWindowPresets), func() string {
+			if hmWindowPresets[g.windowIdx] > 0 {
+				return fmt.Sprintf("Win:%d", hmWindowPresets[g.windowIdx])
+			}
+			return "Win:off"
+		}},
+	}
+}
+
 func (g *HeatmapGame) updateControls() {
 	ctrlY := hmControlY()
 	x := 10
 	changed := false
 
-	// Start X
-	w := 110
-	if btnClicked(x, ctrlY, w, hmControlH) {
-		cycleIdx(&g.startIdx, len(hmStartPresets), true)
-		changed = true
-	} else if btnRightClicked(x, ctrlY, w, hmControlH) {
-		cycleIdx(&g.startIdx, len(hmStartPresets), false)
-		changed = true
+	for _, c := range g.controls() {
+		if btnClicked(x, ctrlY, c.width, hmControlH) {
+			cycleIdx(c.idx, c.count, true)
+			changed = true
+		} else if btnRightClicked(x, ctrlY, c.width, hmControlH) {
+			cycleIdx(c.idx, c.count, false)
+			changed = true
+		}
+		x += c.width + hmBtnGap
 	}
-	x += w + hmBtnGap
-
-	// End X
-	w = 130
-	if btnClicked(x, ctrlY, w, hmControlH) {
-		cycleIdx(&g.endIdx, len(hmEndPresets), true)
-		changed = true
-	} else if btnRightClicked(x, ctrlY, w, hmControlH) {
-		cycleIdx(&g.endIdx, len(hmEndPresets), false)
-		changed = true
-	}
-	x += w + hmBtnGap
-
-	// Step
-	w = 90
-	if btnClicked(x, ctrlY, w, hmControlH) {
-		cycleIdx(&g.stepIdx, len(hmStepPresets), true)
-		changed = true
-	} else if btnRightClicked(x, ctrlY, w, hmControlH) {
-		cycleIdx(&g.stepIdx, len(hmStepPresets), false)
-		changed = true
-	}
-	x += w + hmBtnGap
-
-	// Speed
-	w = 110
-	if btnClicked(x, ctrlY, w, hmControlH) {
-		cycleIdx(&g.speedIdx, len(hmSpeedValues), true)
-		changed = true
-	} else if btnRightClicked(x, ctrlY, w, hmControlH) {
-		cycleIdx(&g.speedIdx, len(hmSpeedValues), false)
-		changed = true
-	}
-	x += w + hmBtnGap
-
-	// Window
-	w = 100
-	if btnClicked(x, ctrlY, w, hmControlH) {
-		cycleIdx(&g.windowIdx, len(hmWindowPresets), true)
-		changed = true
-	} else if btnRightClicked(x, ctrlY, w, hmControlH) {
-		cycleIdx(&g.windowIdx, len(hmWindowPresets), false)
-		changed = true
-	}
-	x += w + hmBtnGap
 
 	// Pause/Play
-	w = 70
+	w := 70
 	if btnClicked(x, ctrlY, w, hmControlH) {
 		g.paused = !g.paused
 		if !g.paused {
@@ -274,41 +258,13 @@ func (g *HeatmapGame) drawControls(screen *ebiten.Image) {
 	ctrlY := hmControlY()
 	x := 10
 
-	// Start X
-	w := 110
-	drawButton(screen, x, ctrlY, w, hmControlH,
-		fmt.Sprintf("Start:%d", hmStartPresets[g.startIdx]), false)
-	x += w + hmBtnGap
-
-	// End X
-	w = 130
-	drawButton(screen, x, ctrlY, w, hmControlH,
-		fmt.Sprintf("End:%d", hmEndPresets[g.endIdx]), false)
-	x += w + hmBtnGap
-
-	// Step
-	w = 90
-	drawButton(screen, x, ctrlY, w, hmControlH,
-		fmt.Sprintf("Step:%d", hmStepPresets[g.stepIdx]), false)
-	x += w + hmBtnGap
-
-	// Speed
-	w = 110
-	drawButton(screen, x, ctrlY, w, hmControlH,
-		fmt.Sprintf("Speed:%s", hmSpeedLabels[g.speedIdx]), false)
-	x += w + hmBtnGap
-
-	// Window
-	w = 100
-	winLabel := "Win:off"
-	if hmWindowPresets[g.windowIdx] > 0 {
-		winLabel = fmt.Sprintf("Win:%d", hmWindowPresets[g.windowIdx])
+	for _, c := range g.controls() {
+		drawButton(screen, x, ctrlY, c.width, hmControlH, c.label(), false)
+		x += c.width + hmBtnGap
 	}
-	drawButton(screen, x, ctrlY, w, hmControlH, winLabel, false)
-	x += w + hmBtnGap
 
 	// Pause/Play
-	w = 70
+	w := 70
 	pauseLabel := "Pause"
 	if g.paused {
 		pauseLabel = "Play"

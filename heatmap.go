@@ -67,12 +67,12 @@ func heatColor(t float64) color.RGBA {
 // simulateBlizzardGrid returns per-subtile hit counts for a single X value.
 func simulateBlizzardGrid(centerX uint32) gridArray {
 	var grid gridArray
-	for frame := BlizzardDuration; frame >= ShardSpawnRate; frame -= ShardSpawnRate {
+	for elapsed := 0; elapsed < BlizzardDuration; elapsed += ShardSpawnRate {
 		var seed D2Seed
-		seed.Init(centerX + uint32(frame))
+		seed.Init(centerX + uint32(elapsed))
 		maxRange := int32(BlizzardRadius - 1)
-		dx := int(seed.RollN(2*maxRange) - maxRange)
-		dy := int(seed.RollN(2*maxRange) - maxRange)
+		dx := int(maxRange - seed.RollN(2*maxRange))
+		dy := int(maxRange - seed.RollN(2*maxRange))
 		for sy := 0; sy < ShardH; sy++ {
 			for sx := 0; sx < ShardW; sx++ {
 				gx := dx + sx

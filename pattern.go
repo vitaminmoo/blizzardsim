@@ -60,12 +60,12 @@ func (g *PatternGame) Draw(screen *ebiten.Image) {
 	hits := map[[2]int]int{}
 	var shards []shardPos
 
-	for frame := BlizzardDuration; frame >= ShardSpawnRate; frame -= ShardSpawnRate {
+	for elapsed := 0; elapsed < BlizzardDuration; elapsed += ShardSpawnRate {
 		var seed D2Seed
-		seed.Init(uint32(g.castX) + uint32(frame))
+		seed.Init(uint32(g.castX) + uint32(elapsed))
 		maxRange := int32(BlizzardRadius - 1)
-		dx := int(seed.RollN(2*maxRange) - maxRange)
-		dy := int(seed.RollN(2*maxRange) - maxRange)
+		dx := int(maxRange - seed.RollN(2*maxRange))
+		dy := int(maxRange - seed.RollN(2*maxRange))
 		shards = append(shards, shardPos{g.castX + dx, g.castY + dy})
 		for sy := 0; sy < ShardH; sy++ {
 			for sx := 0; sx < ShardW; sx++ {

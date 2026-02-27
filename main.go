@@ -314,13 +314,14 @@ func (g *Game) Update() error {
 	// Blizzard ticks
 	alive := g.Blizzards[:0]
 	for _, b := range g.Blizzards {
-		// Spawn shard
-		if b.FramesLeft > 0 && b.FramesLeft%ShardSpawnRate == 0 {
+		// Spawn shard — seed uses elapsed frames (counting up from 0)
+		elapsed := BlizzardDuration - b.FramesLeft
+		if b.FramesLeft > 0 && elapsed%ShardSpawnRate == 0 {
 			var seed D2Seed
-			seed.Init(uint32(b.CenterX) + uint32(b.FramesLeft))
+			seed.Init(uint32(b.CenterX) + uint32(elapsed))
 			maxRange := int32(BlizzardRadius - 1) // 6
-			offsetX := seed.RollN(2*maxRange) - maxRange
-			offsetY := seed.RollN(2*maxRange) - maxRange
+			offsetX := maxRange - seed.RollN(2*maxRange)
+			offsetY := maxRange - seed.RollN(2*maxRange)
 			b.Shards = append(b.Shards, Shard{
 				X:          b.CenterX + int(offsetX),
 				Y:          b.CenterY + int(offsetY),
